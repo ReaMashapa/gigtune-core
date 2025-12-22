@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GigTune Core
  * Description: Core functionality for the GigTune marketplace.
- * Version: 1.0 8
+ * Version: 1.0
  * Author: Capital-Iz
  */
 
