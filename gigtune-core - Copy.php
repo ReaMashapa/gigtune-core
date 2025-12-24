@@ -967,13 +967,9 @@ function gigtune_booking_details_metabox_render($post) {
     $statuses = [
         'requested' => 'Requested',
         'accepted'  => 'Accepted',
-        'awaiting_escrow' => 'Awaiting Escrow',
-        'escrowed'  => 'Escrowed',
         'declined'  => 'Declined',
         'cancelled' => 'Cancelled',
         'awaiting_client_confirmation' => 'Awaiting Client Confirmation',
-        'dispute_window' => 'Dispute Window',
-        'disputed' => 'Disputed',
         'completed' => 'Completed',
         'no_show'   => 'No-show'
     ];
@@ -1021,7 +1017,7 @@ function gigtune_booking_details_metabox_save($post_id) {
     $artist_id = isset($_POST['gigtune_booking_artist_profile_id']) ? absint($_POST['gigtune_booking_artist_profile_id']) : 0;
     $status = isset($_POST['gigtune_booking_status']) ? sanitize_text_field($_POST['gigtune_booking_status']) : 'requested';
 
-    $allowed = ['requested','accepted','awaiting_escrow','escrowed','declined','cancelled','awaiting_client_confirmation','dispute_window','disputed','completed','no_show'];
+    $allowed = ['requested','accepted','declined','cancelled','completed','no_show'];
     if (!in_array($status, $allowed, true)) $status = 'requested';
 
     $requested_at = isset($_POST['gigtune_booking_requested_at']) ? sanitize_text_field($_POST['gigtune_booking_requested_at']) : '';
@@ -1116,27 +1112,13 @@ function gigtune_client_dashboard_shortcode() {
                     <td style="border-bottom:1px solid #eee;padding:8px;">
                     <?php
 
-                    if ($status === 'awaiting_escrow') {
-
-                        echo do_shortcode('[gigtune_escrow_payment booking_id="' . esc_attr($b->ID) . '"]');
-
-                    } elseif ($status === 'awaiting_client_confirmation') {
+                    if ($status === 'awaiting_client_confirmation') {
 
                         echo '<form method="post">';
                         wp_nonce_field('gigtune_client_confirm_completion', 'gigtune_client_confirm_nonce');
                         echo '<input type="hidden" name="gigtune_confirm_booking_id" value="' . esc_attr($b->ID) . '">';
                         echo '<button type="submit" name="gigtune_client_confirm_completion">
                                 Confirm Completion
-                            </button>';
-                        echo '</form>';
-
-                    } elseif ($status === 'dispute_window') {
-
-                        echo '<form method="post">';
-                        wp_nonce_field('gigtune_client_open_dispute', 'gigtune_client_dispute_nonce');
-                        echo '<input type="hidden" name="gigtune_dispute_booking_id" value="' . esc_attr($b->ID) . '">';
-                        echo '<button type="submit" name="gigtune_client_open_dispute">
-                                Open Dispute
                             </button>';
                         echo '</form>';
 
@@ -1161,82 +1143,6 @@ function gigtune_client_dashboard_shortcode() {
     return ob_get_clean();
 }
 add_shortcode('gigtune_client_dashboard', 'gigtune_client_dashboard_shortcode');
-
-/**
- * --------------------------------------------------
- * ESCROW PAYMENT (CLIENT SIDE)
- * Shortcode: [gigtune_escrow_payment booking_id="123"]
- * --------------------------------------------------
- */
-function gigtune_escrow_payment_shortcode($atts) {
-
-    if (!is_user_logged_in()) {
-        return '<p>You must be logged in.</p>';
-    }
-
-    $user = wp_get_current_user();
-    if (!in_array('gigtune_client', $user->roles, true) && !current_user_can('manage_options')) {
-        return '<p>Access denied.</p>';
-    }
-
-    $atts = shortcode_atts(['booking_id' => ''], $atts, 'gigtune_escrow_payment');
-    $booking_id = absint($atts['booking_id']);
-
-    if ($booking_id <= 0) {
-        return '<p>Invalid booking.</p>';
-    }
-
-    $booking = get_post($booking_id);
-    if (!$booking || $booking->post_type !== 'gigtune_booking') {
-        return '<p>Invalid booking.</p>';
-    }
-
-    $client_id = (int) get_post_meta($booking_id, 'gigtune_booking_client_user_id', true);
-    if ($client_id !== (int) $user->ID && !current_user_can('manage_options')) {
-        return '<p>Access denied.</p>';
-    }
-
-    $status = (string) get_post_meta($booking_id, 'gigtune_booking_status', true);
-    if ($status !== 'awaiting_escrow') {
-        return '<em>Escrow not required.</em>';
-    }
-
-    $msg = '';
-
-    if (isset($_POST['gigtune_escrow_submit'])) {
-
-        if (
-            !isset($_POST['gigtune_escrow_nonce']) ||
-            !wp_verify_nonce($_POST['gigtune_escrow_nonce'], 'gigtune_escrow_action')
-        ) {
-            return '<p>Security check failed.</p>';
-        }
-
-        $posted_booking_id = isset($_POST['gigtune_escrow_booking_id']) ? absint($_POST['gigtune_escrow_booking_id']) : 0;
-        if ($posted_booking_id !== $booking_id) {
-            return '<p>Invalid booking.</p>';
-        }
-
-        update_post_meta($booking_id, 'gigtune_booking_status', 'escrowed');
-        update_post_meta($booking_id, 'gigtune_booking_escrowed_at', current_time('timestamp'));
-
-        $msg = '<p><strong>Escrow received.</strong></p>';
-    }
-
-    ob_start(); ?>
-
-    <?php echo $msg; ?>
-
-    <form method="post">
-        <?php wp_nonce_field('gigtune_escrow_action', 'gigtune_escrow_nonce'); ?>
-        <input type="hidden" name="gigtune_escrow_booking_id" value="<?php echo esc_attr($booking_id); ?>">
-        <button type="submit" name="gigtune_escrow_submit">Pay Escrow</button>
-    </form>
-
-    <?php
-    return ob_get_clean();
-}
-add_shortcode('gigtune_escrow_payment', 'gigtune_escrow_payment_shortcode');
 
 
 /**
@@ -1366,7 +1272,7 @@ function gigtune_phase6_artist_booking_requests_block($artist_profile_id) {
             if ($b_artist_id === $artist_profile_id) {
 
                 if ($action === 'accept') {
-                    update_post_meta($booking_id, 'gigtune_booking_status', 'awaiting_escrow');
+                    update_post_meta($booking_id, 'gigtune_booking_status', 'accepted');
                     update_post_meta($booking_id, 'gigtune_booking_responded_at', current_time('mysql'));
 
                     if (function_exists('gigtune_phase5_apply_reliability_event')) {
@@ -1465,7 +1371,7 @@ function gigtune_phase61_artist_accepted_bookings_block($artist_profile_id) {
             ],
             [
                 'key'     => 'gigtune_booking_status',
-                'value'   => ['accepted','awaiting_escrow','escrowed','awaiting_client_confirmation','dispute_window','completed'],
+                'value'   => ['accepted','completed'],
                 'compare' => 'IN'
             ]
         ],
@@ -1511,7 +1417,7 @@ function gigtune_phase61_artist_accepted_bookings_block($artist_profile_id) {
                         <td style="padding:8px;border-bottom:1px solid #eee;">
                             <?php echo esc_html(ucfirst(str_replace('_',' ', $status))); ?>
 
-                            <?php if ($status === 'escrowed'): ?>
+                            <?php if ($status === 'accepted'): ?>
                                 <form method="post" style="margin-top:6px;">
                                     <?php wp_nonce_field('gigtune_artist_complete_booking', 'gigtune_artist_complete_nonce'); ?>
                                     <input type="hidden" name="gigtune_complete_booking_id" value="<?php echo esc_attr($b->ID); ?>">
@@ -1843,39 +1749,10 @@ function gigtune_handle_client_confirm_completion() {
     $booking_id = absint($_POST['gigtune_confirm_booking_id']);
     if ($booking_id <= 0) return;
 
-    update_post_meta($booking_id, 'gigtune_booking_status', 'dispute_window');
+    update_post_meta($booking_id, 'gigtune_booking_status', 'completed');
     update_post_meta($booking_id, 'gigtune_booking_client_confirmed_at', current_time('timestamp'));
-    update_post_meta($booking_id, 'gigtune_booking_dispute_window_started_at', current_time('timestamp'));
 }
 add_action('init', 'gigtune_handle_client_confirm_completion');
-
-function gigtune_handle_client_open_dispute() {
-
-    if (!isset($_POST['gigtune_client_open_dispute'])) return;
-
-    if (
-        !isset($_POST['gigtune_client_dispute_nonce']) ||
-        !wp_verify_nonce($_POST['gigtune_client_dispute_nonce'], 'gigtune_client_open_dispute')
-    ) return;
-
-    if (!is_user_logged_in()) return;
-
-    $booking_id = absint($_POST['gigtune_dispute_booking_id']);
-    if ($booking_id <= 0) return;
-
-    $booking = get_post($booking_id);
-    if (!$booking || $booking->post_type !== 'gigtune_booking') return;
-
-    $status = (string) get_post_meta($booking_id, 'gigtune_booking_status', true);
-    if ($status !== 'dispute_window') return;
-
-    $client_id = (int) get_post_meta($booking_id, 'gigtune_booking_client_user_id', true);
-    if ($client_id !== (int) get_current_user_id() && !current_user_can('manage_options')) return;
-
-    update_post_meta($booking_id, 'gigtune_booking_status', 'disputed');
-    update_post_meta($booking_id, 'gigtune_booking_disputed_at', current_time('timestamp'));
-}
-add_action('init', 'gigtune_handle_client_open_dispute');
 
 function gigtune_auto_complete_after_timeout() {
 
@@ -1896,37 +1773,11 @@ function gigtune_auto_complete_after_timeout() {
         if ($completed_at <= 0) continue;
 
         if ((time() - $completed_at) >= (48 * 3600)) {
-            update_post_meta($b->ID, 'gigtune_booking_status', 'dispute_window');
+            update_post_meta($b->ID, 'gigtune_booking_status', 'completed');
             update_post_meta($b->ID, 'gigtune_booking_client_confirmed_at', time());
-            update_post_meta($b->ID, 'gigtune_booking_dispute_window_started_at', time());
         }
     }
 }
 add_action('init', 'gigtune_auto_complete_after_timeout');
-
-function gigtune_auto_release_after_dispute_window() {
-
-    $bookings = get_posts([
-        'post_type' => 'gigtune_booking',
-        'numberposts' => 20,
-        'meta_query' => [
-            [
-                'key' => 'gigtune_booking_status',
-                'value' => 'dispute_window'
-            ]
-        ]
-    ]);
-
-    foreach ($bookings as $b) {
-
-        $started_at = (int) get_post_meta($b->ID, 'gigtune_booking_dispute_window_started_at', true);
-        if ($started_at <= 0) continue;
-
-        if ((time() - $started_at) >= (48 * 3600)) {
-            update_post_meta($b->ID, 'gigtune_booking_status', 'completed');
-        }
-    }
-}
-add_action('init', 'gigtune_auto_release_after_dispute_window');
 
 
