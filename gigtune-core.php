@@ -446,7 +446,7 @@ function gigtune_artist_profile_edit_shortcode() {
 
     <h2>Edit Artist Profile</h2>
 
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
         <?php wp_nonce_field('gigtune_profile_action', 'gigtune_profile_nonce'); ?>
 
         <p>
@@ -858,6 +858,15 @@ function gigtune_handle_demo_uploads($profile_id, $existing, &$errors) {
     }
 
     $files = $_FILES['gigtune_demo_videos'];
+    if (isset($files['name']) && !is_array($files['name'])) {
+        $files = [
+            'name' => [$files['name']],
+            'type' => [$files['type']],
+            'tmp_name' => [$files['tmp_name']],
+            'error' => [$files['error']],
+            'size' => [$files['size']]
+        ];
+    }
     $file_count = is_array($files['name']) ? count($files['name']) : 0;
 
     if ($file_count <= 0) {
