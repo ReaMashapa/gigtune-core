@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GigTune Core
  * Description: Core functionality for the GigTune marketplace.
- * Version: 1.4
+ * Version: 1.3
  * Author: Capital-Iz
  */
 
@@ -37,7 +37,7 @@ function gigtune_register_form_shortcode() {
 
     ob_start(); ?>
 
-    <form method="post" enctype="multipart/form-data">
+    <form method="post">
         <?php wp_nonce_field('gigtune_register_action', 'gigtune_register_nonce'); ?>
 
         <p>
@@ -128,7 +128,6 @@ function gigtune_handle_registration() {
             update_post_meta($profile_id, 'gigtune_artist_availability_days', []);
             update_post_meta($profile_id, 'gigtune_artist_availability_start_time', '');
             update_post_meta($profile_id, 'gigtune_artist_availability_end_time', '');
-            update_post_meta($profile_id, 'gigtune_demo_videos', []);
         }
     }
 
@@ -210,8 +209,6 @@ function gigtune_artist_dashboard_shortcode() {
 
     <h3>Bio</h3>
     <div><?php echo wpautop($profile->post_content); ?></div>
-
-    <?php echo gigtune_render_demo_gallery($profile_id, 'artist_dashboard'); ?>
 
     <h3>Capabilities</h3>
     <ul>
@@ -327,40 +324,6 @@ function gigtune_handle_artist_profile_update() {
         }
     }
 
-    $errors = [];
-
-    $existing_videos = gigtune_get_demo_videos($profile_id);
-    $remove_ids = [];
-    if (isset($_POST['gigtune_remove_demo']) && is_array($_POST['gigtune_remove_demo'])) {
-        $remove_ids = array_map('absint', $_POST['gigtune_remove_demo']);
-    }
-    if (!empty($remove_ids)) {
-        foreach ($remove_ids as $rid) {
-            if ($rid > 0) {
-                wp_delete_attachment($rid, true);
-            }
-        }
-        $existing_videos = array_values(array_diff($existing_videos, $remove_ids));
-    }
-
-    $updated_videos = gigtune_handle_demo_uploads($profile_id, $existing_videos, $errors);
-    $updated_videos = array_values(array_unique(array_map('absint', $updated_videos)));
-
-    $limits = gigtune_get_demo_video_limits();
-    $blocking_error = false;
-    if (count($updated_videos) > $limits['max_count']) {
-        $errors[] = 'You can only have up to ' . $limits['max_count'] . ' demo videos.';
-        $blocking_error = true;
-    }
-    if (count($updated_videos) < $limits['min_count']) {
-        $errors[] = 'At least ' . $limits['min_count'] . ' demo video is required.';
-        $blocking_error = true;
-    }
-
-    if (!$blocking_error) {
-        update_post_meta($profile_id, 'gigtune_demo_videos', $updated_videos);
-    }
-
     $available_now = isset($_POST['gigtune_artist_available_now']) ? 1 : 0;
     $base_area = sanitize_text_field($_POST['gigtune_artist_base_area'] ?? '');
     $travel_radius = absint($_POST['gigtune_artist_travel_radius_km'] ?? 0);
@@ -397,11 +360,6 @@ function gigtune_handle_artist_profile_update() {
     update_post_meta($profile_id, 'gigtune_artist_availability_days', array_values(array_unique($days)));
     update_post_meta($profile_id, 'gigtune_artist_availability_start_time', $start_time);
     update_post_meta($profile_id, 'gigtune_artist_availability_end_time', $end_time);
-
-    if (!empty($errors)) {
-        $GLOBALS['gigtune_profile_errors'] = $errors;
-        return;
-    }
 
     wp_redirect(site_url('/artist-dashboard'));
     exit;
@@ -488,54 +446,6 @@ function gigtune_artist_profile_edit_shortcode() {
             </fieldset>
 
         <?php } ?>
-
-        <h3>Demo Videos</h3>
-
-        <?php
-        $limits = gigtune_get_demo_video_limits();
-        $demo_videos = gigtune_get_demo_videos($profile_id);
-        $errors = isset($GLOBALS['gigtune_profile_errors']) && is_array($GLOBALS['gigtune_profile_errors']) ? $GLOBALS['gigtune_profile_errors'] : [];
-        ?>
-
-        <?php if (!empty($errors)): ?>
-            <div style="color:red;margin-bottom:10px;">
-                <?php foreach ($errors as $e): ?>
-                    <div><?php echo esc_html($e); ?></div>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
-
-        <p style="color:#555;">
-            Upload 1–5 videos. Each must be 30–60 seconds and no larger than 200MB.
-            Allowed: mp4, mov, webm, m4v. Orientation is required (portrait/landscape).
-        </p>
-        <p style="color:#777;">Server max upload size: <?php echo esc_html(size_format(wp_max_upload_size())); ?></p>
-
-        <?php if (!empty($demo_videos)): ?>
-            <fieldset>
-                <legend>Existing Demos (check to remove)</legend>
-                <?php foreach ($demo_videos as $vid_id): ?>
-                    <?php
-                    $src = wp_get_attachment_url($vid_id);
-                    if (!$src) continue;
-                    ?>
-                    <label>
-                        <input type="checkbox" name="gigtune_remove_demo[]" value="<?php echo esc_attr($vid_id); ?>">
-                        Remove
-                    </label>
-                    <div style="margin:6px 0 12px 0;">
-                        <video controls playsinline controlslist="nodownload noplaybackrate" oncontextmenu="return false;" style="max-width:100%;">
-                            <source src="<?php echo esc_url($src); ?>">
-                        </video>
-                    </div>
-                <?php endforeach; ?>
-            </fieldset>
-        <?php endif; ?>
-
-        <p>
-            <label>Add Demo Videos</label><br>
-            <input type="file" name="gigtune_demo_videos[]" accept="video/*" multiple>
-        </p>
 
         <h3>Availability and Travel</h3>
 
@@ -630,8 +540,6 @@ function gigtune_public_artist_profile_shortcode() {
     <h2><?php echo esc_html($profile->post_title); ?></h2>
 
     <div><?php echo wpautop($profile->post_content); ?></div>
-
-    <?php echo gigtune_render_demo_gallery($profile_id, 'public_profile'); ?>
 
     <h3>Capabilities</h3>
     <ul>
@@ -757,187 +665,6 @@ function gigtune_public_profile_reliability_append($output, $profile_id) {
     $append .= '</ul>';
 
     return $output . $append;
-}
-
-/**
- * --------------------------------------------------
- * MEDIA: DEMO VIDEOS (1 MIN, 5 MAX)
- * --------------------------------------------------
- */
-function gigtune_get_demo_video_limits() {
-    return [
-        'min_count' => 1,
-        'max_count' => 5,
-        'max_size_bytes' => 200 * 1024 * 1024,
-        'min_duration' => 30,
-        'max_duration' => 60,
-        'allowed_ext' => ['mp4','mov','webm','m4v']
-    ];
-}
-
-function gigtune_get_demo_videos($profile_id) {
-    $videos = get_post_meta($profile_id, 'gigtune_demo_videos', true);
-    return is_array($videos) ? array_values(array_unique(array_map('absint', $videos))) : [];
-}
-
-function gigtune_render_demo_gallery($profile_id, $context = 'public_profile') {
-    $videos = gigtune_get_demo_videos($profile_id);
-    if (empty($videos)) {
-        return $context === 'artist_dashboard' ? '<h3>Demo Videos</h3><p>No demo videos uploaded yet.</p>' : '';
-    }
-
-    $slider_id = 'gigtune-demo-slider-' . $profile_id . '-' . $context;
-    $out = '<h3>Demo Videos</h3>';
-    $out .= '<div id="' . esc_attr($slider_id) . '" class="gigtune-demo-slider" data-index="0">';
-    $out .= '<div class="gigtune-demo-track">';
-
-    foreach ($videos as $idx => $attachment_id) {
-        if ($attachment_id <= 0) continue;
-        $src = wp_get_attachment_url($attachment_id);
-        if (!$src) continue;
-
-        $orientation = get_post_meta($attachment_id, 'gigtune_video_orientation', true);
-        $orientation_label = $orientation !== '' ? ucfirst($orientation) : 'Unknown';
-
-        $out .= '<div class="gigtune-demo-slide" data-idx="' . esc_attr($idx) . '" style="' . ($idx === 0 ? '' : 'display:none;') . '">';
-        $out .= '<video controls playsinline controlslist="nodownload noplaybackrate" oncontextmenu="return false;" style="max-width:100%;">';
-        $out .= '<source src="' . esc_url($src) . '">';
-        $out .= '</video>';
-        $out .= '<div style="margin-top:6px;font-size:13px;color:#555;">Orientation: ' . esc_html($orientation_label) . '</div>';
-        $out .= '<div style="margin-top:6px;">Share: <a href="' . esc_url($src) . '" target="_blank" rel="noopener noreferrer">Open demo link</a></div>';
-        $out .= '</div>';
-    }
-
-    $out .= '</div>';
-
-    if (count($videos) > 1) {
-        $out .= '<div style="margin-top:8px;">';
-        $out .= '<button type="button" class="gigtune-demo-prev">Prev</button>';
-        $out .= '<button type="button" class="gigtune-demo-next" style="margin-left:8px;">Next</button>';
-        $out .= '</div>';
-    }
-
-    $out .= '</div>';
-
-    if (count($videos) > 1) {
-        $out .= '<script>
-            (function(){
-                var root = document.getElementById("' . esc_js($slider_id) . '");
-                if (!root) return;
-                var slides = root.querySelectorAll(".gigtune-demo-slide");
-                var idx = 0;
-                function show(i){
-                    slides.forEach(function(s){ s.style.display = "none"; });
-                    if (slides[i]) slides[i].style.display = "block";
-                    idx = i;
-                }
-                var prev = root.querySelector(".gigtune-demo-prev");
-                var next = root.querySelector(".gigtune-demo-next");
-                if (prev) prev.addEventListener("click", function(){
-                    var i = idx - 1;
-                    if (i < 0) i = slides.length - 1;
-                    show(i);
-                });
-                if (next) next.addEventListener("click", function(){
-                    var i = idx + 1;
-                    if (i >= slides.length) i = 0;
-                    show(i);
-                });
-            })();
-        </script>';
-    }
-
-    return $out;
-}
-
-function gigtune_handle_demo_uploads($profile_id, $existing, &$errors) {
-    $limits = gigtune_get_demo_video_limits();
-
-    if (empty($_FILES['gigtune_demo_videos'])) {
-        return $existing;
-    }
-
-    $files = $_FILES['gigtune_demo_videos'];
-    $file_count = is_array($files['name']) ? count($files['name']) : 0;
-
-    if ($file_count <= 0) {
-        $errors[] = 'No demo videos were received by the server. Check upload limits.';
-        return $existing;
-    }
-
-    if (count($existing) + $file_count > $limits['max_count']) {
-        $errors[] = 'You can only upload ' . $limits['max_count'] . ' demo videos total.';
-        return $existing;
-    }
-
-    require_once ABSPATH . 'wp-admin/includes/file.php';
-    require_once ABSPATH . 'wp-admin/includes/media.php';
-    require_once ABSPATH . 'wp-admin/includes/image.php';
-
-    $updated = $existing;
-
-    for ($i = 0; $i < $file_count; $i++) {
-        $name = $files['name'][$i] ?? '';
-        $size = (int) ($files['size'][$i] ?? 0);
-        $error = (int) ($files['error'][$i] ?? 0);
-
-        if ($error !== UPLOAD_ERR_OK) {
-            $errors[] = 'Upload failed for ' . ($name !== '' ? $name : 'a demo video') . '.';
-            continue;
-        }
-
-        if ($size <= 0 || $size > $limits['max_size_bytes']) {
-            $errors[] = $name . ' exceeds the 200MB limit.';
-            continue;
-        }
-
-        $file = [
-            'name' => $files['name'][$i],
-            'type' => $files['type'][$i],
-            'tmp_name' => $files['tmp_name'][$i],
-            'error' => $files['error'][$i],
-            'size' => $files['size'][$i]
-        ];
-
-        $filetype = wp_check_filetype_and_ext($file['tmp_name'], $file['name']);
-        $ext = strtolower($filetype['ext'] ?? '');
-        if ($ext === '' || !in_array($ext, $limits['allowed_ext'], true)) {
-            $errors[] = $name . ' is not an allowed video type.';
-            continue;
-        }
-
-        $attach_id = media_handle_sideload($file, 0);
-        if (is_wp_error($attach_id)) {
-            $errors[] = 'Could not save ' . $name . '.';
-            continue;
-        }
-
-        $file_path = get_attached_file($attach_id);
-        $meta = wp_read_video_metadata($file_path);
-        $duration = isset($meta['length']) ? (float) $meta['length'] : 0;
-        $width = isset($meta['width']) ? (int) $meta['width'] : 0;
-        $height = isset($meta['height']) ? (int) $meta['height'] : 0;
-
-        if ($duration < $limits['min_duration'] || $duration > $limits['max_duration']) {
-            wp_delete_attachment($attach_id, true);
-            $errors[] = $name . ' must be 30–60 seconds.';
-            continue;
-        }
-
-        if ($width <= 0 || $height <= 0) {
-            wp_delete_attachment($attach_id, true);
-            $errors[] = $name . ' orientation could not be detected.';
-            continue;
-        }
-
-        $orientation = $width >= $height ? 'landscape' : 'portrait';
-        update_post_meta($attach_id, 'gigtune_video_orientation', $orientation);
-        update_post_meta($attach_id, 'gigtune_video_duration', $duration);
-
-        $updated[] = $attach_id;
-    }
-
-    return $updated;
 }
 
 /**
