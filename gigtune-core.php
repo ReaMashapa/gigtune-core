@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GigTune Core
  * Description: Core functionality for the GigTune marketplace.
- * Version: 1.4
+ * Version: 1.5
  * Author: Capital-Iz
  */
 
@@ -906,7 +906,9 @@ function gigtune_handle_demo_uploads($profile_id, $existing, &$errors) {
             continue;
         }
 
-        $attach_id = media_handle_sideload($file, 0);
+        $_FILES['gigtune_demo_single'] = $file;
+        $attach_id = media_handle_upload('gigtune_demo_single', 0);
+        unset($_FILES['gigtune_demo_single']);
         if (is_wp_error($attach_id)) {
             $errors[] = 'Could not save ' . $name . '.';
             continue;
