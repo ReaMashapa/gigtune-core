@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GigTune Core
  * Description: Core functionality for the GigTune marketplace.
- * Version: 1.5
+ * Version: 2.1
  * Author: Capital-Iz
  */
 
@@ -129,6 +129,8 @@ function gigtune_handle_registration() {
             update_post_meta($profile_id, 'gigtune_artist_availability_start_time', '');
             update_post_meta($profile_id, 'gigtune_artist_availability_end_time', '');
             update_post_meta($profile_id, 'gigtune_demo_videos', []);
+            update_post_meta($profile_id, 'gigtune_artist_price_min', 0);
+            update_post_meta($profile_id, 'gigtune_artist_price_max', 0);
         }
     }
 
@@ -205,6 +207,8 @@ function gigtune_artist_dashboard_shortcode() {
     ob_start(); ?>
 
     <h2>Artist Dashboard</h2>
+
+    <?php echo gigtune_render_notifications_block($user->ID, 'Artist Notifications'); ?>
 
     <p><strong>Profile Name:</strong> <?php echo esc_html($profile->post_title); ?></p>
 
@@ -364,6 +368,13 @@ function gigtune_handle_artist_profile_update() {
     $available_now = isset($_POST['gigtune_artist_available_now']) ? 1 : 0;
     $base_area = sanitize_text_field($_POST['gigtune_artist_base_area'] ?? '');
     $travel_radius = absint($_POST['gigtune_artist_travel_radius_km'] ?? 0);
+    $price_min = absint($_POST['gigtune_artist_price_min'] ?? 0);
+    $price_max = absint($_POST['gigtune_artist_price_max'] ?? 0);
+    if ($price_max > 0 && $price_min > $price_max) {
+        $tmp = $price_min;
+        $price_min = $price_max;
+        $price_max = $tmp;
+    }
 
     $visibility_mode = sanitize_text_field($_POST['gigtune_artist_visibility_mode'] ?? 'approx');
     if (!in_array($visibility_mode, ['approx', 'hidden'], true)) {
@@ -397,6 +408,8 @@ function gigtune_handle_artist_profile_update() {
     update_post_meta($profile_id, 'gigtune_artist_availability_days', array_values(array_unique($days)));
     update_post_meta($profile_id, 'gigtune_artist_availability_start_time', $start_time);
     update_post_meta($profile_id, 'gigtune_artist_availability_end_time', $end_time);
+    update_post_meta($profile_id, 'gigtune_artist_price_min', $price_min);
+    update_post_meta($profile_id, 'gigtune_artist_price_max', $price_max);
 
     if (!empty($errors)) {
         $GLOBALS['gigtune_profile_errors'] = $errors;
@@ -437,6 +450,8 @@ function gigtune_artist_profile_edit_shortcode() {
     $availability_days = get_post_meta($profile_id, 'gigtune_artist_availability_days', true);
     $availability_start = (string) get_post_meta($profile_id, 'gigtune_artist_availability_start_time', true);
     $availability_end = (string) get_post_meta($profile_id, 'gigtune_artist_availability_end_time', true);
+    $price_min = (int) get_post_meta($profile_id, 'gigtune_artist_price_min', true);
+    $price_max = (int) get_post_meta($profile_id, 'gigtune_artist_price_max', true);
 
     if (!is_array($availability_days)) {
         $availability_days = [];
@@ -518,15 +533,24 @@ function gigtune_artist_profile_edit_shortcode() {
                     <?php
                     $src = wp_get_attachment_url($vid_id);
                     if (!$src) continue;
+                    $thumb = wp_get_attachment_image($vid_id, 'medium');
+                    if ($thumb === '') {
+                        $thumb = '<div style="width:160px;height:90px;background:#f1f1f1;display:flex;align-items:center;justify-content:center;">Preview</div>';
+                    }
                     ?>
                     <label>
                         <input type="checkbox" name="gigtune_remove_demo[]" value="<?php echo esc_attr($vid_id); ?>">
                         Remove
                     </label>
                     <div style="margin:6px 0 12px 0;">
-                        <video controls playsinline controlslist="nodownload noplaybackrate" oncontextmenu="return false;" style="max-width:100%;">
-                            <source src="<?php echo esc_url($src); ?>">
-                        </video>
+                        <button type="button" class="gigtune-demo-preview-toggle" data-src="<?php echo esc_url($src); ?>" style="border:0;background:none;padding:0;cursor:pointer;">
+                            <?php echo $thumb; ?>
+                        </button>
+                        <div class="gigtune-demo-preview-player" style="display:none;margin-top:6px;">
+                            <video controls playsinline controlslist="nodownload noplaybackrate" oncontextmenu="return false;" style="max-width:100%;">
+                                <source src="">
+                            </video>
+                        </div>
                     </div>
                 <?php endforeach; ?>
             </fieldset>
@@ -535,6 +559,38 @@ function gigtune_artist_profile_edit_shortcode() {
         <p>
             <label>Add Demo Videos</label><br>
             <input type="file" name="gigtune_demo_videos[]" accept="video/*" multiple>
+        </p>
+
+        <script>
+            (function(){
+                var buttons = document.querySelectorAll(".gigtune-demo-preview-toggle");
+                buttons.forEach(function(btn){
+                    btn.addEventListener("click", function(){
+                        var wrapper = btn.parentElement.querySelector(".gigtune-demo-preview-player");
+                        if (!wrapper) return;
+                        var video = wrapper.querySelector("video source");
+                        if (!video) return;
+                        if (wrapper.style.display === "none" || wrapper.style.display === "") {
+                            video.src = btn.getAttribute("data-src");
+                            wrapper.style.display = "block";
+                        } else {
+                            wrapper.style.display = "none";
+                        }
+                    });
+                });
+            })();
+        </script>
+
+        <h3>Pricing</h3>
+
+        <p>
+            <label>Minimum Price</label><br>
+            <input type="number" name="gigtune_artist_price_min" min="0" step="1" value="<?php echo esc_attr($price_min); ?>">
+        </p>
+
+        <p>
+            <label>Maximum Price</label><br>
+            <input type="number" name="gigtune_artist_price_max" min="0" step="1" value="<?php echo esc_attr($price_max); ?>">
         </p>
 
         <h3>Availability and Travel</h3>
@@ -632,6 +688,25 @@ function gigtune_public_artist_profile_shortcode() {
     <div><?php echo wpautop($profile->post_content); ?></div>
 
     <?php echo gigtune_render_demo_gallery($profile_id, 'public_profile'); ?>
+
+    <?php
+    $price_min = (int) get_post_meta($profile_id, 'gigtune_artist_price_min', true);
+    $price_max = (int) get_post_meta($profile_id, 'gigtune_artist_price_max', true);
+    if ($price_min > 0 || $price_max > 0):
+    ?>
+        <h3>Pricing</h3>
+        <p>
+            <?php
+            if ($price_min > 0 && $price_max > 0) {
+                echo esc_html($price_min . ' - ' . $price_max);
+            } elseif ($price_min > 0) {
+                echo esc_html('From ' . $price_min);
+            } elseif ($price_max > 0) {
+                echo esc_html('Up to ' . $price_max);
+            }
+            ?>
+        </p>
+    <?php endif; ?>
 
     <h3>Capabilities</h3>
     <ul>
@@ -788,7 +863,7 @@ function gigtune_render_demo_gallery($profile_id, $context = 'public_profile') {
 
     $slider_id = 'gigtune-demo-slider-' . $profile_id . '-' . $context;
     $out = '<h3>Demo Videos</h3>';
-    $out .= '<div id="' . esc_attr($slider_id) . '" class="gigtune-demo-slider" data-index="0">';
+    $out .= '<div id="' . esc_attr($slider_id) . '" class="gigtune-demo-slider" data-index="0" style="max-width:960px;width:100%;">';
     $out .= '<div class="gigtune-demo-track">';
 
     foreach ($videos as $idx => $attachment_id) {
@@ -800,7 +875,7 @@ function gigtune_render_demo_gallery($profile_id, $context = 'public_profile') {
         $orientation_label = $orientation !== '' ? ucfirst($orientation) : 'Unknown';
 
         $out .= '<div class="gigtune-demo-slide" data-idx="' . esc_attr($idx) . '" style="' . ($idx === 0 ? '' : 'display:none;') . '">';
-        $out .= '<video controls playsinline controlslist="nodownload noplaybackrate" oncontextmenu="return false;" style="max-width:100%;">';
+        $out .= '<video controls playsinline controlslist="nodownload noplaybackrate" oncontextmenu="return false;" style="max-width:960px;width:100%;height:auto;">';
         $out .= '<source src="' . esc_url($src) . '">';
         $out .= '</video>';
         $out .= '<div style="margin-top:6px;font-size:13px;color:#555;">Orientation: ' . esc_html($orientation_label) . '</div>';
@@ -1201,6 +1276,17 @@ function gigtune_fit_score_artist($profile_id, $search_tokens, $selected_filters
                 $score += 5;
             }
         }
+
+        if (!empty($availability_filters['budget'])) {
+            $pmin = (int) get_post_meta($profile_id, 'gigtune_artist_price_min', true);
+            $pmax = (int) get_post_meta($profile_id, 'gigtune_artist_price_max', true);
+            $budget = (int) $availability_filters['budget'];
+            if ($pmin === 0 && $pmax === 0) {
+                $score -= 5;
+            } elseif (($pmin === 0 || $budget >= $pmin) && ($pmax === 0 || $budget <= $pmax)) {
+                $score += 10;
+            }
+        }
     }
 
     if ($score < 0) $score = 0;
@@ -1223,6 +1309,7 @@ function gigtune_artist_directory_shortcode() {
     $availability_day_filter = isset($_GET['availability_day']) ? sanitize_text_field($_GET['availability_day']) : '';
     $base_area_filter = isset($_GET['base_area']) ? sanitize_text_field($_GET['base_area']) : '';
     $min_travel_radius = isset($_GET['min_travel_radius']) ? absint($_GET['min_travel_radius']) : 0;
+    $budget_filter = isset($_GET['budget']) ? absint($_GET['budget']) : 0;
 
     if (!in_array($availability_day_filter, ['mon','tue','wed','thu','fri','sat','sun'], true)) {
         $availability_day_filter = '';
@@ -1299,6 +1386,14 @@ function gigtune_artist_directory_shortcode() {
                 if ($base_area === '' || stripos($base_area, $base_area_filter) === false) continue;
             }
 
+            if ($budget_filter > 0) {
+                $pmin = (int) get_post_meta($pid, 'gigtune_artist_price_min', true);
+                $pmax = (int) get_post_meta($pid, 'gigtune_artist_price_max', true);
+                if ($pmin === 0 && $pmax === 0) continue;
+                if ($pmin > 0 && $budget_filter < $pmin) continue;
+                if ($pmax > 0 && $budget_filter > $pmax) continue;
+            }
+
             $filtered[] = $pid;
         }
         $candidate_ids = $filtered;
@@ -1307,7 +1402,8 @@ function gigtune_artist_directory_shortcode() {
     $availability_filters = [
         'available_now' => $available_now_filter,
         'availability_day' => $availability_day_filter,
-        'min_travel_radius' => $min_travel_radius
+        'min_travel_radius' => $min_travel_radius,
+        'budget' => $budget_filter
     ];
 
     ob_start(); ?>
@@ -1348,6 +1444,10 @@ function gigtune_artist_directory_shortcode() {
             <p>
                 <label>Minimum travel radius (km)</label><br>
                 <input type="number" name="min_travel_radius" min="0" step="1" value="<?php echo esc_attr($min_travel_radius); ?>">
+            </p>
+            <p>
+                <label>Budget (match artist price)</label><br>
+                <input type="number" name="budget" min="0" step="1" value="<?php echo esc_attr($budget_filter); ?>">
             </p>
         </fieldset>
 
@@ -1536,6 +1636,325 @@ function gigtune_get_booking_status_label($status) {
 
 /**
  * --------------------------------------------------
+ * NOTIFICATIONS (CPT)
+ * --------------------------------------------------
+ */
+function gigtune_register_notification_cpt() {
+    register_post_type('gigtune_notification', [
+        'labels' => [
+            'name' => 'Notifications',
+            'singular_name' => 'Notification'
+        ],
+        'public' => false,
+        'show_ui' => true,
+        'supports' => ['title'],
+        'menu_icon' => 'dashicons-bell'
+    ]);
+}
+add_action('init', 'gigtune_register_notification_cpt');
+
+function gigtune_add_notification($user_id, $type, $message, $meta = []) {
+    $user_id = absint($user_id);
+    if ($user_id <= 0 || $message === '') return;
+
+    $notification_id = wp_insert_post([
+        'post_type' => 'gigtune_notification',
+        'post_status' => 'publish',
+        'post_title' => wp_strip_all_tags($message)
+    ]);
+
+    if (is_wp_error($notification_id) || $notification_id <= 0) return;
+
+    $meta = is_array($meta) ? $meta : [];
+    $object_type = isset($meta['object_type']) ? sanitize_text_field($meta['object_type']) : '';
+    $object_id = isset($meta['object_id']) ? absint($meta['object_id']) : 0;
+    $notification_type = sanitize_text_field($type);
+
+    update_post_meta($notification_id, 'recipient_user_id', $user_id);
+    update_post_meta($notification_id, 'gigtune_notification_user_id', $user_id);
+    update_post_meta($notification_id, 'notification_type', $notification_type);
+    update_post_meta($notification_id, 'object_type', $object_type);
+    update_post_meta($notification_id, 'object_id', $object_id);
+    update_post_meta($notification_id, 'is_read', 0);
+    update_post_meta($notification_id, 'gigtune_notification_is_read', 0);
+    update_post_meta($notification_id, 'created_at', current_time('timestamp'));
+    update_post_meta($notification_id, 'message', wp_kses_post($message));
+}
+
+function gigtune_get_notifications($user_id, $limit = 10) {
+    $user_id = absint($user_id);
+    if ($user_id <= 0) return [];
+
+    $posts = get_posts([
+        'post_type' => 'gigtune_notification',
+        'post_status' => 'publish',
+        'numberposts' => $limit,
+        'meta_query' => [
+            'relation' => 'OR',
+            [
+                'key' => 'recipient_user_id',
+                'value' => $user_id,
+                'compare' => '='
+            ],
+            [
+                'key' => 'gigtune_notification_user_id',
+                'value' => $user_id,
+                'compare' => '='
+            ]
+        ],
+        'orderby' => 'date',
+        'order' => 'DESC'
+    ]);
+
+    return $posts;
+}
+
+function gigtune_get_unread_notification_count($user_id) {
+    $user_id = absint($user_id);
+    if ($user_id <= 0) return 0;
+
+    $posts = get_posts([
+        'post_type' => 'gigtune_notification',
+        'post_status' => 'publish',
+        'numberposts' => -1,
+        'meta_query' => [
+            'relation' => 'OR',
+            [
+                'key' => 'recipient_user_id',
+                'value' => $user_id,
+                'compare' => '='
+            ],
+            [
+                'key' => 'gigtune_notification_user_id',
+                'value' => $user_id,
+                'compare' => '='
+            ]
+        ],
+        'fields' => 'ids'
+    ]);
+
+    if (!is_array($posts)) return 0;
+
+    $count = 0;
+    foreach ($posts as $pid) {
+        $is_read = (int) get_post_meta($pid, 'is_read', true);
+        $is_read_alt = (int) get_post_meta($pid, 'gigtune_notification_is_read', true);
+        if ($is_read !== 1 && $is_read_alt !== 1) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
+function gigtune_mark_all_notifications_read($user_id) {
+    $user_id = absint($user_id);
+    if ($user_id <= 0) return;
+
+    $posts = get_posts([
+        'post_type' => 'gigtune_notification',
+        'post_status' => 'publish',
+        'numberposts' => -1,
+        'meta_query' => [
+            'relation' => 'OR',
+            [
+                'key' => 'recipient_user_id',
+                'value' => $user_id,
+                'compare' => '='
+            ],
+            [
+                'key' => 'gigtune_notification_user_id',
+                'value' => $user_id,
+                'compare' => '='
+            ]
+        ],
+        'fields' => 'ids'
+    ]);
+
+    foreach ($posts as $pid) {
+        update_post_meta($pid, 'is_read', 1);
+        update_post_meta($pid, 'gigtune_notification_is_read', 1);
+    }
+}
+
+function gigtune_mark_notifications_read_for_object($user_id, $object_type, $object_id) {
+    $user_id = absint($user_id);
+    $object_id = absint($object_id);
+    if ($user_id <= 0 || $object_id <= 0 || $object_type === '') return;
+
+    $posts = get_posts([
+        'post_type' => 'gigtune_notification',
+        'post_status' => 'publish',
+        'numberposts' => -1,
+        'meta_query' => [
+            'relation' => 'AND',
+            [
+                'relation' => 'OR',
+                [
+                    'key' => 'recipient_user_id',
+                    'value' => $user_id,
+                    'compare' => '='
+                ],
+                [
+                    'key' => 'gigtune_notification_user_id',
+                    'value' => $user_id,
+                    'compare' => '='
+                ]
+            ],
+            [
+                'key' => 'object_type',
+                'value' => $object_type,
+                'compare' => '='
+            ],
+            [
+                'key' => 'object_id',
+                'value' => $object_id,
+                'compare' => '='
+            ]
+        ],
+        'fields' => 'ids'
+    ]);
+
+    foreach ($posts as $pid) {
+        update_post_meta($pid, 'is_read', 1);
+        update_post_meta($pid, 'gigtune_notification_is_read', 1);
+    }
+}
+
+function gigtune_render_notifications_block($user_id, $heading) {
+    $list = gigtune_get_notifications($user_id, 10);
+    $unread = gigtune_get_unread_notification_count($user_id);
+
+    $out = '<h3>' . esc_html($heading) . '</h3>';
+    if (empty($list)) {
+        return $out . '<p>No notifications.</p>';
+    }
+
+    $out .= '<p><strong>Unread:</strong> ' . esc_html($unread) . '</p>';
+    $out .= '<form method="post" style="margin-bottom:10px;">';
+    $out .= wp_nonce_field('gigtune_mark_notifications_read', 'gigtune_notifications_nonce', true, false);
+    $out .= '<input type="hidden" name="gigtune_notifications_redirect" value="' . esc_url(home_url(add_query_arg([], $_SERVER['REQUEST_URI'] ?? ''))) . '">';
+    $out .= '<button type="submit" name="gigtune_mark_notifications_read" value="1">Mark all read</button>';
+    $out .= '</form>';
+
+    $out .= '<ul>';
+    foreach ($list as $post) {
+        $created = (int) get_post_meta($post->ID, 'created_at', true);
+        $is_read = (int) get_post_meta($post->ID, 'is_read', true);
+        $message = (string) get_post_meta($post->ID, 'message', true);
+        $created_label = $created > 0 ? date_i18n('Y-m-d H:i', $created) : '';
+        $status = $is_read === 1 ? 'Read' : 'Unread';
+        $out .= '<li><strong>' . esc_html($status) . ':</strong> ' . wp_kses_post($message);
+        if ($created_label !== '') {
+            $out .= ' <span style="color:#666;">(' . esc_html($created_label) . ')</span>';
+        }
+        $out .= '</li>';
+    }
+    $out .= '</ul>';
+
+    return $out;
+}
+
+function gigtune_handle_mark_notifications_read() {
+    if (!isset($_POST['gigtune_mark_notifications_read'])) return;
+    if (
+        !isset($_POST['gigtune_notifications_nonce']) ||
+        !wp_verify_nonce($_POST['gigtune_notifications_nonce'], 'gigtune_mark_notifications_read')
+    ) return;
+
+    if (!is_user_logged_in()) return;
+
+    $user = wp_get_current_user();
+    gigtune_mark_all_notifications_read($user->ID);
+
+    $redirect = isset($_POST['gigtune_notifications_redirect']) ? esc_url_raw($_POST['gigtune_notifications_redirect']) : '';
+    if ($redirect === '') {
+        $redirect = wp_get_referer();
+    }
+    if (!$redirect) $redirect = site_url('/');
+    wp_safe_redirect($redirect);
+    exit;
+}
+add_action('init', 'gigtune_handle_mark_notifications_read');
+
+/**
+ * --------------------------------------------------
+ * NOTIFICATIONS BELL SHORTCODE
+ * --------------------------------------------------
+ */
+function gigtune_notifications_bell_shortcode() {
+    if (!is_user_logged_in()) {
+        return '';
+    }
+
+    $user = wp_get_current_user();
+    $count = gigtune_get_unread_notification_count($user->ID);
+    $url = site_url('/notifications');
+
+    $out = '<a href="' . esc_url($url) . '" class="gigtune-notifications-bell" style="text-decoration:none;position:relative;display:inline-block;">';
+    $out .= '<span aria-hidden="true">🔔</span>';
+    if ($count > 0) {
+        $out .= '<span class="gigtune-notifications-badge" style="position:absolute;top:-6px;right:-10px;font-size:11px;background:#d63638;color:#fff;border-radius:10px;padding:0 6px;">' . esc_html($count) . '</span>';
+    }
+    $out .= '</a>';
+
+    $out .= '<script>
+        (function(){
+            var bell = document.querySelector(".gigtune-notifications-bell");
+            if (!bell) return;
+            function updateCount(){
+                var xhr = new XMLHttpRequest();
+                xhr.open("POST", "' . esc_js(admin_url('admin-ajax.php')) . '", true);
+                xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+                xhr.onreadystatechange = function(){
+                    if (xhr.readyState !== 4) return;
+                    if (xhr.status !== 200) return;
+                    var data = {};
+                    try { data = JSON.parse(xhr.responseText); } catch (e) { return; }
+                    if (!data || typeof data.count === "undefined") return;
+                    var badge = bell.querySelector(".gigtune-notifications-badge");
+                    if (data.count > 0) {
+                        if (!badge) {
+                            badge = document.createElement("span");
+                            badge.className = "gigtune-notifications-badge";
+                            badge.style.position = "absolute";
+                            badge.style.top = "-6px";
+                            badge.style.right = "-10px";
+                            badge.style.fontSize = "11px";
+                            badge.style.background = "#d63638";
+                            badge.style.color = "#fff";
+                            badge.style.borderRadius = "10px";
+                            badge.style.padding = "0 6px";
+                            bell.appendChild(badge);
+                        }
+                        badge.textContent = data.count;
+                    } else if (badge) {
+                        badge.parentNode.removeChild(badge);
+                    }
+                };
+                xhr.send("action=gigtune_unread_notification_count");
+            }
+            setInterval(updateCount, 45000);
+        })();
+    </script>';
+
+    return $out;
+}
+add_shortcode('gigtune_notifications_bell', 'gigtune_notifications_bell_shortcode');
+
+function gigtune_ajax_unread_notification_count() {
+    if (!is_user_logged_in()) {
+        wp_send_json(['count' => 0]);
+    }
+    $user = wp_get_current_user();
+    $count = gigtune_get_unread_notification_count($user->ID);
+    wp_send_json(['count' => (int) $count]);
+}
+add_action('wp_ajax_gigtune_unread_notification_count', 'gigtune_ajax_unread_notification_count');
+add_action('wp_ajax_nopriv_gigtune_unread_notification_count', 'gigtune_ajax_unread_notification_count');
+
+/**
+ * --------------------------------------------------
  * BOOKINGS POST TYPE
  * --------------------------------------------------
  */
@@ -1579,6 +1998,7 @@ function gigtune_booking_details_metabox_render($post) {
     $client_id = get_post_meta($post->ID, 'gigtune_booking_client_user_id', true);
     $artist_id = get_post_meta($post->ID, 'gigtune_booking_artist_profile_id', true);
     $status = get_post_meta($post->ID, 'gigtune_booking_status', true);
+    $budget = get_post_meta($post->ID, 'gigtune_booking_budget', true);
 
     $requested_at = get_post_meta($post->ID, 'gigtune_booking_requested_at', true);
     $responded_at = get_post_meta($post->ID, 'gigtune_booking_responded_at', true);
@@ -1601,6 +2021,10 @@ function gigtune_booking_details_metabox_render($post) {
 
     echo '<p><label><strong>Client User ID</strong></label><br>';
     echo '<input type="number" name="gigtune_booking_client_user_id" value="' . esc_attr($client_id) . '" style="width: 220px;" />';
+    echo '</p>';
+
+    echo '<p><label><strong>Budget</strong></label><br>';
+    echo '<input type="number" name="gigtune_booking_budget" value="' . esc_attr($budget) . '" style="width: 220px;" />';
     echo '</p>';
 
     echo '<p><label><strong>Status</strong></label><br>';
@@ -1673,6 +2097,7 @@ function gigtune_booking_details_metabox_save($post_id) {
     $client_id = isset($_POST['gigtune_booking_client_user_id']) ? absint($_POST['gigtune_booking_client_user_id']) : 0;
     $artist_id = isset($_POST['gigtune_booking_artist_profile_id']) ? absint($_POST['gigtune_booking_artist_profile_id']) : 0;
     $status = isset($_POST['gigtune_booking_status']) ? sanitize_text_field($_POST['gigtune_booking_status']) : 'requested';
+    $budget = isset($_POST['gigtune_booking_budget']) ? absint($_POST['gigtune_booking_budget']) : 0;
 
     $allowed = array_keys(gigtune_get_booking_status_labels());
     if (!in_array($status, $allowed, true)) $status = 'requested';
@@ -1692,6 +2117,7 @@ function gigtune_booking_details_metabox_save($post_id) {
     update_post_meta($post_id, 'gigtune_booking_client_user_id', $client_id);
     update_post_meta($post_id, 'gigtune_booking_artist_profile_id', $artist_id);
     update_post_meta($post_id, 'gigtune_booking_status', $status);
+    update_post_meta($post_id, 'gigtune_booking_budget', $budget);
 
     if ($requested_at !== '') update_post_meta($post_id, 'gigtune_booking_requested_at', $requested_at);
     if ($responded_at !== '') update_post_meta($post_id, 'gigtune_booking_responded_at', $responded_at);
@@ -1829,6 +2255,8 @@ function gigtune_client_dashboard_shortcode() {
     ob_start(); ?>
 
     <h2>Client Dashboard</h2>
+
+    <?php echo gigtune_render_notifications_block($user->ID, 'Client Notifications'); ?>
 
     <p><a href="<?php echo esc_url(site_url('/browse-artists')); ?>">Browse Artists</a></p>
 
@@ -1970,6 +2398,7 @@ function gigtune_book_artist_shortcode() {
         }
 
         $event_date = isset($_POST['gigtune_event_date']) ? sanitize_text_field($_POST['gigtune_event_date']) : '';
+        $budget = isset($_POST['gigtune_budget']) ? absint($_POST['gigtune_budget']) : 0;
         $notes = isset($_POST['gigtune_notes']) ? sanitize_textarea_field($_POST['gigtune_notes']) : '';
 
         $title = 'Booking Request — ' . $artist->post_title . ' — ' . date('Y-m-d H:i');
@@ -1994,7 +2423,18 @@ function gigtune_book_artist_shortcode() {
             update_post_meta($booking_id, 'gigtune_dispute_raised', 0);
 
             if ($event_date !== '') update_post_meta($booking_id, 'gigtune_booking_event_date', $event_date);
+            if ($budget > 0) update_post_meta($booking_id, 'gigtune_booking_budget', $budget);
             if ($notes !== '') update_post_meta($booking_id, 'gigtune_booking_notes', $notes);
+
+            $artist_user_id = (int) get_post_meta($artist_id, 'gigtune_user_id', true);
+            if ($artist_user_id > 0) {
+                gigtune_add_notification(
+                    $artist_user_id,
+                    'booking',
+                    'New booking request for ' . $artist->post_title . '.',
+                    ['object_type' => 'booking', 'object_id' => $booking_id]
+                );
+            }
 
             $msg = '<p><strong>Booking request sent.</strong> You can view it in your Client Dashboard.</p>';
         } else {
@@ -2014,6 +2454,11 @@ function gigtune_book_artist_shortcode() {
         <p>
             <label>Event date (optional)</label><br>
             <input type="text" name="gigtune_event_date" placeholder="e.g. 2026-01-05 18:00">
+        </p>
+
+        <p>
+            <label>Budget (optional)</label><br>
+            <input type="number" name="gigtune_budget" min="0" step="1" placeholder="e.g. 2500">
         </p>
 
         <p>
@@ -2079,6 +2524,21 @@ function gigtune_phase6_artist_booking_requests_block($artist_profile_id) {
                         gigtune_phase5_apply_reliability_event($artist_profile_id, 'accepted');
                     }
 
+                    $client_user_id = (int) get_post_meta($booking_id, 'gigtune_booking_client_user_id', true);
+                    if ($client_user_id > 0) {
+                        gigtune_add_notification(
+                            $client_user_id,
+                            'booking',
+                            'Your booking request was accepted.',
+                            ['object_type' => 'booking', 'object_id' => $booking_id]
+                        );
+                    }
+
+                    $artist_user_id = (int) get_post_meta($artist_profile_id, 'gigtune_user_id', true);
+                    if ($artist_user_id > 0) {
+                        gigtune_mark_notifications_read_for_object($artist_user_id, 'booking', $booking_id);
+                    }
+
                 } elseif ($action === 'decline') {
                     update_post_meta($booking_id, 'gigtune_booking_status', 'declined');
                     update_post_meta($booking_id, 'gigtune_booking_responded_at', current_time('mysql'));
@@ -2086,6 +2546,16 @@ function gigtune_phase6_artist_booking_requests_block($artist_profile_id) {
 
                     if (function_exists('gigtune_phase5_apply_reliability_event')) {
                         gigtune_phase5_apply_reliability_event($artist_profile_id, 'declined');
+                    }
+
+                    $client_user_id = (int) get_post_meta($booking_id, 'gigtune_booking_client_user_id', true);
+                    if ($client_user_id > 0) {
+                        gigtune_add_notification(
+                            $client_user_id,
+                            'booking',
+                            'Your booking request was declined.',
+                            ['object_type' => 'booking', 'object_id' => $booking_id]
+                        );
                     }
                 }
             }
@@ -2374,6 +2844,7 @@ function gigtune_role_nav_shortcode() {
                 <a href="' . esc_url(site_url('/artist-dashboard')) . '">Artist Dashboard</a> |
                 <a href="' . esc_url(site_url('/artist-profile-edit')) . '">Edit Profile</a> |
                 <a href="' . esc_url(site_url('/artist')) . '">Browse Artists</a> |
+                ' . do_shortcode('[gigtune_notifications_bell]') . ' |
                 <a href="' . esc_url($logout_url) . '">Logout</a>
             </nav>
         ';
@@ -2388,6 +2859,7 @@ function gigtune_role_nav_shortcode() {
             <nav class="gigtune-nav">
                 <a href="' . esc_url(site_url('/client-dashboard')) . '">Client Dashboard</a> |
                 <a href="' . esc_url(site_url('/artist')) . '">Browse Artists</a> |
+                ' . do_shortcode('[gigtune_notifications_bell]') . ' |
                 <a href="' . esc_url($logout_url) . '">Logout</a>
             </nav>
         ';
@@ -2525,6 +2997,17 @@ function gigtune_handle_rating_submission() {
     if ($status === 'paid') {
         update_post_meta($booking_id, 'gigtune_booking_status', 'reviewed');
     }
+
+    $artist_id = (int) get_post_meta($booking_id, 'gigtune_booking_artist_profile_id', true);
+    $artist_user_id = $artist_id > 0 ? (int) get_post_meta($artist_id, 'gigtune_user_id', true) : 0;
+    if ($artist_user_id > 0) {
+        gigtune_add_notification(
+            $artist_user_id,
+            'booking',
+            'A client submitted a review for your booking.',
+            ['object_type' => 'booking', 'object_id' => $booking_id]
+        );
+    }
 }
 add_action('init', 'gigtune_handle_rating_submission');
 
@@ -2574,6 +3057,26 @@ function gigtune_handle_client_raise_dispute() {
     update_post_meta($booking_id, 'gigtune_dispute_raised_at', current_time('timestamp'));
     update_post_meta($booking_id, 'gigtune_escrow_status', 'held');
     update_post_meta($booking_id, 'gigtune_booking_status', 'disputed');
+
+    $artist_id = (int) get_post_meta($booking_id, 'gigtune_booking_artist_profile_id', true);
+    $artist_user_id = $artist_id > 0 ? (int) get_post_meta($artist_id, 'gigtune_user_id', true) : 0;
+    if ($artist_user_id > 0) {
+        gigtune_add_notification(
+            $artist_user_id,
+            'system',
+            'A dispute was raised on a booking.',
+            ['object_type' => 'dispute', 'object_id' => $booking_id]
+        );
+    }
+
+    if ($client_id > 0) {
+        gigtune_add_notification(
+            $client_id,
+            'system',
+            'Your dispute was submitted.',
+            ['object_type' => 'dispute', 'object_id' => $booking_id]
+        );
+    }
 }
 add_action('init', 'gigtune_handle_client_raise_dispute');
 
@@ -2593,6 +3096,16 @@ function gigtune_handle_artist_mark_completed() {
 
     update_post_meta($booking_id, 'gigtune_booking_status', 'awaiting_client_confirmation');
     update_post_meta($booking_id, 'gigtune_booking_artist_completed_at', current_time('timestamp'));
+
+    $client_user_id = (int) get_post_meta($booking_id, 'gigtune_booking_client_user_id', true);
+    if ($client_user_id > 0) {
+        gigtune_add_notification(
+            $client_user_id,
+            'booking',
+            'Artist marked your booking as completed. Please confirm.',
+            ['object_type' => 'booking', 'object_id' => $booking_id]
+        );
+    }
 }
 add_action('init', 'gigtune_handle_artist_mark_completed');
 
@@ -2611,6 +3124,17 @@ function gigtune_handle_client_confirm_completion() {
     update_post_meta($booking_id, 'gigtune_booking_status', 'completed');
     update_post_meta($booking_id, 'gigtune_booking_client_confirmed_at', current_time('timestamp'));
     update_post_meta($booking_id, 'gigtune_escrow_release_at', time() + (gigtune_get_booking_dispute_window_hours() * 3600));
+
+    $artist_id = (int) get_post_meta($booking_id, 'gigtune_booking_artist_profile_id', true);
+    $artist_user_id = $artist_id > 0 ? (int) get_post_meta($artist_id, 'gigtune_user_id', true) : 0;
+    if ($artist_user_id > 0) {
+        gigtune_add_notification(
+            $artist_user_id,
+            'booking',
+            'Client confirmed completion. Payout will release after the dispute window.',
+            ['object_type' => 'booking', 'object_id' => $booking_id]
+        );
+    }
 }
 add_action('init', 'gigtune_handle_client_confirm_completion');
 
@@ -2636,6 +3160,27 @@ function gigtune_auto_complete_after_timeout() {
             update_post_meta($b->ID, 'gigtune_booking_status', 'completed');
             update_post_meta($b->ID, 'gigtune_booking_client_confirmed_at', time());
             update_post_meta($b->ID, 'gigtune_escrow_release_at', time() + (gigtune_get_booking_dispute_window_hours() * 3600));
+
+            $client_id = (int) get_post_meta($b->ID, 'gigtune_booking_client_user_id', true);
+            if ($client_id > 0) {
+                gigtune_add_notification(
+                    $client_id,
+                    'booking',
+                    'Booking auto-completed after timeout. You can still raise a dispute within the window.',
+                    ['object_type' => 'booking', 'object_id' => $b->ID]
+                );
+            }
+
+            $artist_id = (int) get_post_meta($b->ID, 'gigtune_booking_artist_profile_id', true);
+            $artist_user_id = $artist_id > 0 ? (int) get_post_meta($artist_id, 'gigtune_user_id', true) : 0;
+            if ($artist_user_id > 0) {
+                gigtune_add_notification(
+                    $artist_user_id,
+                    'booking',
+                    'Booking auto-completed after client timeout.',
+                    ['object_type' => 'booking', 'object_id' => $b->ID]
+                );
+            }
         }
     }
 }
@@ -2673,6 +3218,16 @@ function gigtune_auto_expire_booking_requests() {
         update_post_meta($r->ID, 'gigtune_booking_status', 'expired');
         update_post_meta($r->ID, 'gigtune_booking_responded_at', current_time('mysql'));
         update_post_meta($r->ID, 'gigtune_escrow_status', 'released');
+
+        $client_id = (int) get_post_meta($r->ID, 'gigtune_booking_client_user_id', true);
+        if ($client_id > 0) {
+            gigtune_add_notification(
+                $client_id,
+                'booking',
+                'Your booking request expired due to no response.',
+                ['object_type' => 'booking', 'object_id' => $r->ID]
+            );
+        }
     }
 }
 add_action('init', 'gigtune_auto_expire_booking_requests');
@@ -2720,6 +3275,27 @@ function gigtune_auto_release_escrow_after_dispute_window() {
         update_post_meta($b->ID, 'gigtune_escrow_status', 'released');
         update_post_meta($b->ID, 'gigtune_payout_released_at', $now);
         update_post_meta($b->ID, 'gigtune_booking_status', $rating_submitted === '1' ? 'reviewed' : 'paid');
+
+        $client_id = (int) get_post_meta($b->ID, 'gigtune_booking_client_user_id', true);
+        if ($client_id > 0) {
+            gigtune_add_notification(
+                $client_id,
+                'payment',
+                'Payout released after dispute window.',
+                ['object_type' => 'booking', 'object_id' => $b->ID]
+            );
+        }
+
+        $artist_id = (int) get_post_meta($b->ID, 'gigtune_booking_artist_profile_id', true);
+        $artist_user_id = $artist_id > 0 ? (int) get_post_meta($artist_id, 'gigtune_user_id', true) : 0;
+        if ($artist_user_id > 0) {
+            gigtune_add_notification(
+                $artist_user_id,
+                'payment',
+                'Payout released for a completed booking.',
+                ['object_type' => 'booking', 'object_id' => $b->ID]
+            );
+        }
     }
 }
 add_action('init', 'gigtune_auto_release_escrow_after_dispute_window');
